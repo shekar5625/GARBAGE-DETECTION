@@ -1,0 +1,100 @@
+========================================================================
+GARBAGE-DETECTION — Setup on a fresh machine (after cloning from GitHub)
+========================================================================
+
+The repo has 3 independent sub-projects that talk over HTTP:
+  Backend/   Python  -> Flask API (api.py) + RTSP/YOLO loop (main.py)
+  Frontend/  React   -> dashboard UI
+  App/       Android -> collector mobile client (optional)
+
+Prerequisites (install these first):
+  - Git
+  - Python 3.10+  (with pip)      -> https://www.python.org/downloads/
+  - Node.js 18+ and npm           -> https://nodejs.org/
+  - (Android only) Android Studio / JDK 17
+
+
+------------------------------------------------------------------------
+0) Clone the repo
+------------------------------------------------------------------------
+    git clone <your-repo-url> GARBAGE-DETECTION
+    cd GARBAGE-DETECTION
+
+
+------------------------------------------------------------------------
+1) Get the YOLOv5 source (NOT stored in this repo)
+------------------------------------------------------------------------
+main.py loads the model with source='local', so a yolov5/ checkout must
+live inside Backend/. The trained weights (Backend/model/best1000.pt) ARE
+in the repo already.
+
+    cd Backend
+    git clone https://github.com/ultralytics/yolov5.git yolov5
+    cd ..
+
+Result: Backend/yolov5/  and  Backend/model/best1000.pt  both present.
+
+
+------------------------------------------------------------------------
+2) Backend — Python environment
+------------------------------------------------------------------------
+    python -m venv .venv
+
+  Activate it:
+    Windows (PowerShell):   .\.venv\Scripts\Activate.ps1
+    Windows (cmd):          .\.venv\Scripts\activate.bat
+    macOS/Linux:            source .venv/bin/activate
+
+  Install dependencies (repo-root requirements.txt covers api.py + main.py):
+    pip install -r requirements.txt
+
+  If you want the full YOLOv5 toolchain (training/export etc.):
+    pip install -r Backend/yolov5/requirements.txt
+
+  GPU note: the default torch wheel is CPU-only. For an NVIDIA GPU install a
+  CUDA build instead, e.g.:
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+
+------------------------------------------------------------------------
+3) Backend — configuration to update per deployment
+------------------------------------------------------------------------
+  - Backend/main.py : RTSP_USER / RTSP_PASS / RTSP_IP  (camera credentials + IP)
+  - App/app/src/main/java/garbagedetection/utils/Constants.kt : Flask base URL
+    (set to the machine running api.py, e.g. http://<server-ip>:5000/)
+
+  The SQLite DB (car.db.sqlite) is created automatically on first run.
+
+
+------------------------------------------------------------------------
+4) Frontend — React
+------------------------------------------------------------------------
+    cd Frontend
+    npm install
+    npm start          # dev server, opens http://localhost:3000
+    cd ..
+
+  Production build:  npm run build
+
+
+------------------------------------------------------------------------
+5) Run everything
+------------------------------------------------------------------------
+  Three processes, each in its own terminal (venv activated for the Python ones):
+
+    cd Backend && python api.py      # Flask API on :5000
+    cd Backend && python main.py     # RTSP capture + YOLO inference
+    cd Frontend && npm start         # React dashboard
+
+  Windows shortcut: run.bat launches all three in separate windows.
+  (Edit run.bat if your venv python path differs from the one hardcoded there.)
+
+
+------------------------------------------------------------------------
+6) Android app (optional)
+------------------------------------------------------------------------
+    cd App
+    ./gradlew :app:assembleDebug         # build debug APK
+    ./gradlew :app:testDebugUnitTest     # run unit tests
+
+  Or open the App/ folder in Android Studio and Run.

@@ -1,101 +1,104 @@
-# Import necessary libraries
 import cv2
 import os
+import time
+import threading
 from datetime import datetime
 from PIL import Image
 import torch
 import json
-import io
-import sqlite3
-
-import requests
-import os
+import numpy as np
+import pygame
 
 
+MOTION_PIXEL_THRESHOLD = 2500
+DETECT_INTERVAL_SEC = 5
+ALERT_SOUND = r"C:\Users\chpsh\OneDrive\Desktop\sekai\garbage\GARBAGE-DETECTION\Backend\audio\ElevenLabs_2026-07-01T11_14_56_David - Deep, Warm, Narration_pvc_s50_m2.mp3"
 
-def send_img(path, mac="AS:AS:BS:AS:SD:AS", addr="Ahmedabad, Gota"):
-    url = f'http://127.0.0.1:5000/add/{addr}/{mac}'
+pygame.mixer.init()
 
-    with open(path, 'rb') as img:
-        name_img = os.path.basename(path)
-        files = {'file': (name_img, img, 'multipart/form-data', {'Expires': '0'})}
-        with requests.Session() as s:
-            r = s.post(url, files=files)
-            print(r)
+base_path = os.path.dirname(os.path.abspath(__file__))
+os.chdir(base_path)
+
+DETECTIONS_DIR = os.path.join(base_path, 'detections')
+os.makedirs(DETECTIONS_DIR, exist_ok=True)
+
+
+def play_alert():
+    def _play():
+        try:
+            pygame.mixer.music.load(ALERT_SOUND)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.1)
+        except Exception as e:
+            print(f"Audio error: {e}")
+    threading.Thread(target=_play, daemon=True).start()
 
 
 def get_yolov5():
-    model = torch.hub.load('yolov5', 'custom', path='best1000.pt', source='local')
+    model = torch.hub.load('yolov5', 'custom', path='model/best1000.pt', source='local')
     model.conf = 0.50
     return model
 
-model1=get_yolov5()
-# set path in which you want to save images
-path = r'D:\OCR_Image\Garbage_yolo'
 
-# changing directory to given path
-os.chdir(path)
+model1 = get_yolov5()
 
-# i variable is to give unique name to images
-i = 1
+RTSP_USER = "admin"
+RTSP_PASS = "ap09bx5625"
+RTSP_IP   = "169.254.5.71"
+video = cv2.VideoCapture(f"rtsp://{RTSP_USER}:{RTSP_PASS}@{RTSP_IP}:554/Streaming/Channels/101")
+video.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-wait = 0
-x=0
-# Open the camera
-video = cv2.VideoCapture(0)
+bg_sub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=25, detectShadows=True)
+kernel = np.ones((3, 3), np.uint8)
 
-conn = sqlite3.connect('garbage.db')
+last_detection = time.time()
+
+print(f"Saving detections to: {DETECTIONS_DIR}")
+print("Running. Press 'q' to quit.")
 
 while True:
-    # Read video by read() function and it
-    # will extract and return the frame
     ret, img = video.read()
+    if not ret:
+        print('End of video / no frame')
+        break
 
-    # Put current DateTime on each frame
+    # Motion detection
+    fg = bg_sub.apply(img)
+    _, th = cv2.threshold(fg, 200, 255, cv2.THRESH_BINARY)
+    th = cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel)
+    th = cv2.dilate(th, kernel, iterations=2)
+    motion_pixels = cv2.countNonZero(th)
+    motion_present = motion_pixels > MOTION_PIXEL_THRESHOLD
+
+    # HUD
     font = cv2.FONT_HERSHEY_PLAIN
-    cv2.putText(img, str(datetime.now()), (20, 40),
-                font, 2, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(img, str(datetime.now()), (20, 40), font, 2, (255, 255, 255), 2, cv2.LINE_AA)
+    status = f"Motion: {'YES' if motion_present else 'NO'} ({motion_pixels}px)"
+    cv2.putText(img, status, (20, 70), font, 1.5, (0, 255, 0) if motion_present else (100, 100, 100), 2, cv2.LINE_AA)
 
-    # Display the imageq
     cv2.imshow('live video', img)
 
-    # wait for user to press any key
-    key = cv2.waitKey(100)
-
-    # wait variable is to calculate waiting time
-    wait = wait + 100
-
-    if key == ord('q'):
+    if cv2.waitKey(1) == ord('q'):
         break
-    # when it reaches to 5000 milliseconds
-    # we will save that frame in given folder
-    if wait == 5000:
-        filename = 'Frame.jpg'
-        # Save the images in given path
-        cv2.imwrite(filename, img)
-        img1=Image.open(r'D:\OCR_Image\Garbage_yolo\Frame.jpg')
-        results = model1(img1, size=320)
-        detect_res_f = results.pandas().xyxy[0].to_json(orient="records")
-        detect_res = json.loads(detect_res_f)
-        data = json.loads(detect_res_f)
-        if len(data)!=0:
-            print('Garbage detected')
-            imgs = results.render()  # updates results.imgs with boxes and labels
-            for img in imgs:
-                x=x+1
-                bytes_io = io.BytesIO()
-                img_base64 = Image.fromarray(img)
-                img_base64.save(bytes_io, format="jpeg")
 
-                img_base64.save(f'D:\OCR_Image\Garbage_yolo\detected_GarbagewithBOX.jpeg')
-            send_img(f'D:\OCR_Image\Garbage_yolo\detected_GarbagewithBOX.jpeg', "LK:ASK:LAS:ASL")
+    # Run YOLO only when motion is detected and interval has passed
+    if motion_present and (time.time() - last_detection >= DETECT_INTERVAL_SEC):
+        img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        results = model1(img_pil, size=320)
+        data = json.loads(results.pandas().xyxy[0].to_json(orient="records"))
+
+        if len(data) != 0:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = os.path.join(DETECTIONS_DIR, f"garbage_{timestamp}.jpg")
+            annotated = Image.fromarray(results.render()[0])
+            annotated.save(save_path)
+            print(f"Garbage detected — saved: {save_path}")
+            play_alert()
         else:
-            print('Not detected')
-        i = i + 1
-        wait = 0
+            print('Motion detected, no garbage')
 
-# close the camera
+        last_detection = time.time()
+
 video.release()
-
-# close open windows
 cv2.destroyAllWindows()

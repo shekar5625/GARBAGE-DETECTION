@@ -1,0 +1,29 @@
+# Python dependencies for the Garbage Detection Backend.
+# Install with:  pip install -r requirements.txt
+#
+# Covers both backend processes:
+#   api.py   -> Flask REST API (port 5000)
+#   main.py  -> RTSP capture + YOLOv5 inference loop
+#
+# NOTE: The YOLOv5 checkout (Backend/yolov5/) has its own requirements.txt.
+#       Those are a superset of what is listed here; installing this file is
+#       enough to run api.py and main.py. See clone.txt for full setup.
+
+# --- Web API (api.py) ---
+Flask>=3.0
+flask-cors>=4.0
+Werkzeug>=3.0
+
+# --- Inference loop (main.py) ---
+torch>=1.8.0
+torchvision>=0.9.0
+opencv-python>=4.1.1
+pillow>=10.3.0
+numpy>=1.23.5
+pygame>=2.5           # non-blocking audio alerts on detection
+
+# --- Shared / data handling ---
+pandas>=1.1.4
+requests>=2.32.2
+PyYAML>=5.3.1
+tqdm>=4.66.3
