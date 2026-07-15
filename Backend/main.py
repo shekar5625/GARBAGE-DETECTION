@@ -43,11 +43,23 @@ def get_yolov5():
 
 model1 = get_yolov5()
 
+# Force RTSP over TCP — UDP (the default) drops packets on this camera and
+# causes HEVC decode errors. Must be set before cv2.VideoCapture is created.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
 RTSP_USER = "admin"
-RTSP_PASS = "ap09bx5625"
+RTSP_PASS = "Ap09bx5625"
 RTSP_IP   = "169.254.5.71"
-video = cv2.VideoCapture(f"rtsp://{RTSP_USER}:{RTSP_PASS}@{RTSP_IP}:554/Streaming/Channels/101")
-video.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+RTSP_URL  = f"rtsp://{RTSP_USER}:{RTSP_PASS}@{RTSP_IP}:554/Streaming/Channels/101"
+
+
+def open_stream():
+    cap = cv2.VideoCapture(RTSP_URL)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
+
+
+video = open_stream()
 
 bg_sub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=25, detectShadows=True)
 kernel = np.ones((3, 3), np.uint8)
@@ -60,8 +72,11 @@ print("Running. Press 'q' to quit.")
 while True:
     ret, img = video.read()
     if not ret:
-        print('End of video / no frame')
-        break
+        print('Frame read failed — reconnecting...')
+        video.release()
+        time.sleep(2)
+        video = open_stream()
+        continue
 
     # Motion detection
     fg = bg_sub.apply(img)
