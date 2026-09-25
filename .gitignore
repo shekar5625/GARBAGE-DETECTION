@@ -19,3 +19,18 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Vite build output
+Web/dist/
+
+# Uploaded detection images (runtime data)
+Backend/core/media/
+
+# Saved detection frames written by main.py at runtime
+Backend/detections/
+
+# Drawn ROI — site-specific pixel coords, must be redrawn per deployment
+Backend/roi.json
+
+# Still-image fixtures for USE_IMAGES test mode (local only)
+Backend/test_images/

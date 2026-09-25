@@ -10,8 +10,8 @@ Three independent sub-projects, each with its own toolchain. They communicate ov
   - `main.py`: OpenCV capture loop that connects to a Hikvision RTSP camera (`rtsp://admin:<pass>@169.254.5.71:554/Streaming/Channels/101`), runs YOLOv5 inference every 5 seconds, and POSTs detected-garbage images to the Flask API at `http://127.0.0.1:5000/add/<addr>/<mac>`. The RTSP credentials (`RTSP_USER`, `RTSP_PASS`, `RTSP_IP`) are hardcoded near the top of the file — update them for each deployment. The working directory is set to the script's own directory via `os.chdir(os.path.dirname(os.path.abspath(__file__)))`.
   - `api.py`: Flask + flask-cors REST server (port 5000) backed by SQLite. See "Key API surface" below.
   - `host/` is a stale duplicate of the top-level Backend (older copy with its own DB + `fake_garbage.xlsx`); don't propagate edits there unless asked.
-- `Frontend/` — React (CRA, `Frontend/src/`). Routes: `/` (Login), `/Table` (live detections), `/Verified`, `/Delete`, `/History`, `/Logout`. Key deps: antd, axios, react-router-dom v6, react-toastify, react-bootstrap.
-- `App/` — Android (Kotlin + Jetpack Compose, Hilt, Retrofit/OkHttp, Room) for the garbage-collector mobile client. Gradle multi-module: root `App/build.gradle` + `App/app/`. The Flask base URL is hardcoded in `App/app/src/main/java/garbagedetection/utils/Constants.kt` (`http://192.168.1.100:5000/`) — update this if the server IP changes.
+- `Frontend/` — **legacy** CRA dashboard, superseded by `Web/`. Kept as a fallback; don't add features here. Routes: `/` (Login), `/Table`, `/Verified`, `/Delete`, `/History`, `/Logout`. Hardcodes `http://127.0.0.1:5000` in every component.
+- `Web/` — **the current dashboard.** React 19 + Vite, plain CSS, `react-router-dom` v7. Routes: `/login`, `/pending`, `/verified`, `/deleted`, `/history`. No host or port appears in any component: every call goes to `/api/...`, proxied to Flask by `Web/vite.config.js` (override with `VITE_API_TARGET`). All API access is funnelled through `src/api/client.js`.
 
 ## Common commands
 
@@ -22,16 +22,16 @@ python api.py                          # Flask API on :5000
 python main.py                         # RTSP capture + YOLO inference loop
 ```
 
-Frontend (from `Frontend/`):
+Web dashboard (from `Web/`):
 ```
 npm install
-npm start                              # CRA dev server
-npm test                               # Jest via react-scripts
-npm test -- -t "<name>"                # single test by name
-npm run build                          # production build
+npm run dev                            # Vite dev server on :5173
+npm run build                          # production build into Web/dist/
+npm run lint                           # oxlint
+VITE_API_TARGET=http://<ip>:5000 npm run dev   # point at a non-local API
 ```
 
-Android (from `App/`): `./gradlew :app:assembleDebug`, `./gradlew :app:testDebugUnitTest`.
+Legacy frontend (from `Frontend/`): `npm start`, `npm run build`, `npm test`.
 
 ## Key API surface (Flask, `Backend/api.py`)
 
@@ -58,5 +58,9 @@ When adding routes, mirror the existing pattern (path params, `sqlite3` connecti
 **`host/` is a stale duplicate** — kept in-tree; don't propagate edits there unless asked.
 
 **`SECRET_KEY`** — read from env (`os.environ.get('SECRET_KEY')`); unset by default.
+
+**`Backend/core/media/` must exist** — `Config.UPLOAD_FOLDER` points there, but nothing creates it. If it's missing, `POST /add` raises on `file.save()` and every detection upload from `main.py` fails. It's gitignored (runtime data), so it won't exist on a fresh clone.
+
+**A detection's identity is its image filename** — not a numeric id, despite the `<id>` in the route names. `/verify/<id>`, `/temp_delete/<id>` and `/delete_row/<id>` all run `WHERE image = "<id>"`. The listing routes return that filename under the misspelled key `iamge_path`; `Web/src/api/client.js` normalises it in exactly one place.
 
 **SQL injection** — all DB queries in `api.py` use f-string interpolation, not parameterized queries. Be aware of this when adding or modifying routes.

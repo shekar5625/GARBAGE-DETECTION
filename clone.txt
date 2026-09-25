@@ -4,14 +4,13 @@ GARBAGE-DETECTION — Setup on a fresh machine (after cloning from GitHub)
 
 The repo has 3 independent sub-projects that talk over HTTP:
   Backend/   Python  -> Flask API (api.py) + RTSP/YOLO loop (main.py)
-  Frontend/  React   -> dashboard UI
-  App/       Android -> collector mobile client (optional)
+  Web/       React   -> review dashboard (Vite)  <- current UI
+  Frontend/  React   -> older CRA dashboard (legacy)
 
 Prerequisites (install these first):
   - Git
   - Python 3.10+  (with pip)      -> https://www.python.org/downloads/
   - Node.js 18+ and npm           -> https://nodejs.org/
-  - (Android only) Android Studio / JDK 17
 
 
 ------------------------------------------------------------------------
@@ -60,7 +59,6 @@ Result: Backend/yolov5/  and  Backend/model/best1000.pt  both present.
 3) Backend — configuration to update per deployment
 ------------------------------------------------------------------------
   - Backend/main.py : RTSP_USER / RTSP_PASS / RTSP_IP  (camera credentials + IP)
-  - App/app/src/main/java/garbagedetection/utils/Constants.kt : Flask base URL
     (set to the machine running api.py, e.g. http://<server-ip>:5000/)
 
   The SQLite DB (car.db.sqlite) is created automatically on first run.
@@ -84,17 +82,28 @@ Result: Backend/yolov5/  and  Backend/model/best1000.pt  both present.
 
     cd Backend && python api.py      # Flask API on :5000
     cd Backend && python main.py     # RTSP capture + YOLO inference
-    cd Frontend && npm start         # React dashboard
+    cd Web && npm run dev            # React dashboard on :5173
 
   Windows shortcut: run.bat launches all three in separate windows.
   (Edit run.bat if your venv python path differs from the one hardcoded there.)
 
 
 ------------------------------------------------------------------------
-6) Android app (optional)
+6) Web dashboard (Web/)
 ------------------------------------------------------------------------
-    cd App
-    ./gradlew :app:assembleDebug         # build debug APK
-    ./gradlew :app:testDebugUnitTest     # run unit tests
+    cd Web
+    npm install
+    npm run dev           # dev server on http://localhost:5173
+    npm run build         # production build into Web/dist/
 
-  Or open the App/ folder in Android Studio and Run.
+  The dashboard talks to Flask through a /api proxy declared in
+  Web/vite.config.js — no host or port is hardcoded in any component.
+  If the API is not on 127.0.0.1:5000, set the target when starting:
+
+      VITE_API_TARGET=http://192.168.1.50:5000 npm run dev
+
+  For a production build, serve Web/dist/ behind a reverse proxy that
+  maps /api to the Flask server (the dev proxy only runs under `npm run dev`).
+
+  IMPORTANT: Backend/core/media/ must exist before any detection is
+  uploaded — /add writes image files there and fails silently if missing.
