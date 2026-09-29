@@ -41,6 +41,7 @@ These are the ones that will actually surprise you:
 | Path | Size | Carry over? | Why |
 |---|---|---|---|
 | `Web/` | — | **YES — critical** | This is the *current* dashboard, and it has **zero tracked files** (`git ls-files Web` returns nothing). A clone on the field laptop gives you no dashboard at all. Either `git add Web/` and commit before you travel, or copy the folder manually (excluding `node_modules/` and `dist/`). |
+| `Backend/.env` | — | **Recreate** | Camera user/password/IP. Copy `Backend/.env.example` and fill it in — see §5. |
 | `Backend/roi.json` | 4 B | **NO — see §5** | Saved ROI in *source-pixel* coordinates for the current camera mounting. Wrong at a new site. |
 | `Backend/detections/` | 13 MB | No | Local detection output from testing. |
 | `Backend/test_images/` | 4.5 MB | Only if using `USE_IMAGES` mode | Still-image test fixtures. |
@@ -138,18 +139,24 @@ preemptively.
 These are the two things most likely to kill the field test — far more likely
 than anything CPU-related.
 
-**RTSP address.** `Backend/main.py:72-77` hardcodes:
+**RTSP address.** Camera settings are read from environment variables, falling
+back to `Backend/.env` (gitignored, so a clone won't have it). Create it from
+the template:
 
-```python
-RTSP_USER = "admin"
-RTSP_PASS = "..."
-RTSP_IP   = "169.254.5.71"
+```bash
+cp Backend/.env.example Backend/.env     # then set RTSP_PASS and RTSP_IP
+```
+
+```
+RTSP_USER=admin
+RTSP_PASS=...
+RTSP_IP=169.254.5.71
 ```
 
 `169.254.x.x` is a **link-local (APIPA) address**. It only works when the
 camera is cable-direct to the laptop with no DHCP server, exactly as on the
 current machine. On a field network the camera will almost certainly get a
-different IP. Find it and update `RTSP_IP` before you travel. Check
+different IP. Find it and update `RTSP_IP` in `Backend/.env`. Check
 reachability first:
 
 ```bash
@@ -157,7 +164,7 @@ ping <camera-ip>
 Test-NetConnection <camera-ip> -Port 554     # PowerShell
 ```
 
-Also confirm `USE_IMAGES = False` (`Backend/main.py:85`) — it is the still-image
+Also confirm `USE_IMAGES = False` in `Backend/main.py` — it is the still-image
 test mode, not the camera.
 
 **ROI.** Do **not** copy `Backend/roi.json`. It stores

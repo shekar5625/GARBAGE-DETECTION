@@ -58,7 +58,8 @@ Result: Backend/yolov5/  and  Backend/model/best1000.pt  both present.
 ------------------------------------------------------------------------
 3) Backend — configuration to update per deployment
 ------------------------------------------------------------------------
-  - Backend/main.py : RTSP_USER / RTSP_PASS / RTSP_IP  (camera credentials + IP)
+  - Backend/.env    : RTSP_USER / RTSP_PASS / RTSP_IP  (camera credentials + IP)
+                      copy Backend/.env.example to Backend/.env and fill it in
     (set to the machine running api.py, e.g. http://<server-ip>:5000/)
 
   The SQLite DB (car.db.sqlite) is created automatically on first run.

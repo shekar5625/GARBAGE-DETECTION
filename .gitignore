@@ -34,3 +34,6 @@ Backend/roi.json
 
 # Still-image fixtures for USE_IMAGES test mode (local only)
 Backend/test_images/
+
+# Camera credentials — see Backend/.env.example
+Backend/.env

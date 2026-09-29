@@ -69,9 +69,20 @@ model1 = get_yolov5(MODEL_FILES[model_index])
 # causes HEVC decode errors. Must be set before cv2.VideoCapture is created.
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
-RTSP_USER = "admin"
-RTSP_PASS = "Ap09bx5625"
-RTSP_IP   = "169.254.5.71"
+# Camera settings come from the environment, falling back to Backend/.env
+# (gitignored — copy .env.example). Real environment variables win over .env.
+_env_file = os.path.join(base_path, '.env')
+if os.path.exists(_env_file):
+    with open(_env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                os.environ.setdefault(key.strip(), value.strip())
+
+RTSP_USER = os.environ.get("RTSP_USER", "admin")
+RTSP_PASS = os.environ.get("RTSP_PASS", "")
+RTSP_IP   = os.environ.get("RTSP_IP", "169.254.5.71")
 # Channel 101 is the full-res main stream. The background reader thread below
 # keeps FPS smooth by always dropping stale frames instead of buffering them.
 RTSP_URL  = f"rtsp://{RTSP_USER}:{RTSP_PASS}@{RTSP_IP}:554/Streaming/Channels/101"
@@ -83,6 +94,8 @@ WEBCAM_INDEX = 0
 # Set to True to feed still images instead of any live camera (takes precedence
 # over USE_WEBCAM). IMAGE_SOURCE may be a single image file or a folder.
 USE_IMAGES = False
+if not (USE_IMAGES or USE_WEBCAM) and not RTSP_PASS:
+    print("WARNING: RTSP_PASS is not set — create Backend/.env from .env.example")
 IMAGE_SOURCE = os.path.join(base_path, 'test_images')
 IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
 
