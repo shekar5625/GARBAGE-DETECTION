@@ -151,7 +151,14 @@ cp Backend/.env.example Backend/.env     # then set RTSP_PASS and RTSP_IP
 RTSP_USER=admin
 RTSP_PASS=...
 RTSP_IP=169.254.5.71
+API_URL=http://127.0.0.1:5000
+CAMERA_AREA=area1
 ```
+
+`CAMERA_AREA` is the area name each detection is uploaded under. In the
+dashboard, a user whose username equals it sees only this camera; `admin` sees
+every area. If `api.py` is not running, `main.py` keeps detecting and prints
+`Dashboard upload failed` — the image is still saved to `Backend/detections/`.
 
 `169.254.x.x` is a **link-local (APIPA) address**. It only works when the
 camera is cable-direct to the laptop with no DHCP server, exactly as on the

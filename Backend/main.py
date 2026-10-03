@@ -8,6 +8,9 @@ import torch
 import json
 import numpy as np
 import pygame
+import requests
+import uuid
+from urllib.parse import quote
 
 
 MOTION_PIXEL_THRESHOLD = 2500  # tuned for a full frame; auto-scaled down for a smaller ROI
@@ -15,6 +18,9 @@ DETECT_INTERVAL_SEC = 5
 DISPLAY_WIDTH = 960  # on-screen window width; source stays full-res for YOLO/saved images
 INFERENCE_SIZE = 640  # YOLO input resolution — higher = sees more detail, slower
 REMEMBER_ROI = False  # True = reuse the last drawn ROI on restart; False = draw it every run
+SAME_GARBAGE_IOU = 0.3  # box overlap above this = the same pile already reported, not new garbage
+RECHECK_INTERVAL_SEC = 30  # while garbage is known, re-run detection this often even without motion
+CLEAR_AFTER_MISSES = 3  # known garbage missing from this many checks in a row = removed
 ALERT_SOUND = r"C:\Users\chpsh\OneDrive\Desktop\sekai\garbage\GARBAGE-DETECTION\Backend\audio\ElevenLabs_2026-07-01T11_14_56_David - Deep, Warm, Narration_pvc_s50_m2.mp3"
 
 pygame.mixer.init()
@@ -26,6 +32,25 @@ DETECTIONS_DIR = os.path.join(base_path, 'detections')
 os.makedirs(DETECTIONS_DIR, exist_ok=True)
 
 ROI_FILE = os.path.join(base_path, 'roi.json')  # remembers the drawn ROI between runs
+
+
+def upload_detection(image):
+    """POSTs a detection image to api.py in the background, so a slow or
+    stopped API never freezes the video. Failures are printed, not raised."""
+    ok, buf = cv2.imencode('.jpg', image)
+    if not ok:
+        return
+    url = f"{API_URL}/add/{quote(CAMERA_AREA, safe='')}/{quote(CAMERA_MAC, safe='')}"
+
+    def _send():
+        try:
+            r = requests.post(url, files={'file': ('detection.jpg', buf.tobytes(), 'image/jpeg')},
+                              timeout=10)
+            r.raise_for_status()
+            print(f"Uploaded to dashboard (area '{CAMERA_AREA}')")
+        except Exception as e:
+            print(f"Dashboard upload failed — is api.py running? ({e})")
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def play_alert():
@@ -86,6 +111,14 @@ RTSP_IP   = os.environ.get("RTSP_IP", "169.254.5.71")
 # Channel 101 is the full-res main stream. The background reader thread below
 # keeps FPS smooth by always dropping stale frames instead of buffering them.
 RTSP_URL  = f"rtsp://{RTSP_USER}:{RTSP_PASS}@{RTSP_IP}:554/Streaming/Channels/101"
+
+# Where new detections are uploaded for the dashboard. CAMERA_AREA is the area
+# name shown in the dashboard: a user whose username matches it sees these
+# rows, and 'admin' sees every area.
+API_URL     = os.environ.get("API_URL", "http://127.0.0.1:5000").rstrip('/')
+CAMERA_AREA = os.environ.get("CAMERA_AREA", "area1")
+CAMERA_MAC  = os.environ.get("CAMERA_MAC", ':'.join(f"{(uuid.getnode() >> s) & 0xff:02x}"
+                                                    for s in range(40, -1, -8)))
 
 # Set to True to use the local webcam instead of the Hikvision RTSP camera.
 USE_WEBCAM = False
@@ -253,6 +286,50 @@ def motion_threshold(roi, frame):
     return max(300, int(MOTION_PIXEL_THRESHOLD * ratio))
 
 
+def _centre_inside(a, b):
+    cx, cy = (a['xmin'] + a['xmax']) / 2, (a['ymin'] + a['ymax']) / 2
+    return b['xmin'] <= cx <= b['xmax'] and b['ymin'] <= cy <= b['ymax']
+
+
+def same_spot(a, b):
+    """True if two boxes are the same pile: enough overlap, or one box's centre
+    inside the other (the pile grew or shrank between checks)."""
+    iw = max(0, min(a['xmax'], b['xmax']) - max(a['xmin'], b['xmin']))
+    ih = max(0, min(a['ymax'], b['ymax']) - max(a['ymin'], b['ymin']))
+    inter = iw * ih
+    union = ((a['xmax'] - a['xmin']) * (a['ymax'] - a['ymin'])
+             + (b['xmax'] - b['xmin']) * (b['ymax'] - b['ymin']) - inter)
+    if union > 0 and inter / union >= SAME_GARBAGE_IOU:
+        return True
+    return _centre_inside(a, b) or _centre_inside(b, a)
+
+
+known_garbage = []  # garbage already reported: [{'box': box, 'misses': n}]
+
+
+def update_known(boxes):
+    """Matches this check's boxes against garbage already reported. Returns
+    (new boxes, number removed). Known garbage missing from CLEAR_AFTER_MISSES
+    checks in a row is forgotten, so the same spot can alert again later."""
+    new, matched = [], set()
+    for box in boxes:
+        for i, k in enumerate(known_garbage):
+            if i not in matched and same_spot(box, k['box']):
+                k['box'], k['misses'] = box, 0
+                matched.add(i)
+                break
+        else:
+            new.append(box)
+    for i, k in enumerate(known_garbage):
+        if i not in matched:
+            k['misses'] += 1
+    before = len(known_garbage)
+    known_garbage[:] = [k for k in known_garbage if k['misses'] < CLEAR_AFTER_MISSES]
+    removed = before - len(known_garbage)
+    known_garbage.extend({'box': b, 'misses': 0} for b in new)
+    return new, removed
+
+
 video = ImageSource(IMAGE_SOURCE) if USE_IMAGES else FreshestFrame()
 
 # Wait for the first frame so the ROI can be drawn on a real image.
@@ -308,7 +385,11 @@ while True:
         th = cv2.dilate(th, kernel, iterations=2)
         motion_pixels = cv2.countNonZero(th)
         motion_present = motion_pixels > motion_threshold(roi, img)
-        run_detect = motion_present and (time.time() - last_detection >= DETECT_INTERVAL_SEC)
+        since = time.time() - last_detection
+        # Removal makes no motion afterwards, so while garbage is known, re-check on
+        # a timer too — otherwise it would never be noticed that the spot is clear.
+        run_detect = ((motion_present and since >= DETECT_INTERVAL_SEC)
+                      or (known_garbage and since >= RECHECK_INTERVAL_SEC))
 
     # Snapshot clean pixels before the HUD is drawn over them, so inference and
     # the saved image never see the overlay text.
@@ -327,6 +408,8 @@ while True:
     cv2.putText(img, status, (20, 70), font, 1.5, colour, 2, cv2.LINE_AA)
     cv2.putText(img, f"model: {MODEL_FILES[model_index]}", (20, 100), font, 1.5,
                 (255, 200, 0), 2, cv2.LINE_AA)
+    cv2.putText(img, f"known garbage: {len(known_garbage)}", (20, 130), font, 1.5,
+                (0, 0, 255) if known_garbage else (100, 100, 100), 2, cv2.LINE_AA)
 
     if roi is not None:
         rx, ry, rw, rh = roi
@@ -353,6 +436,7 @@ while True:
         model_index = (model_index + 1) % len(MODEL_FILES)
         model1 = get_yolov5(MODEL_FILES[model_index])
         last_boxes = []
+        known_garbage.clear()  # a different model may box the same pile differently
         if USE_IMAGES:
             video.new_image = True  # re-run the current image through the new model
         continue
@@ -375,6 +459,7 @@ while True:
         # The subtractor's background model is tied to the old crop size.
         bg_sub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=25, detectShadows=True)
         last_boxes = []
+        known_garbage.clear()  # new area to watch — start fresh
         if USE_IMAGES:
             video.new_image = True  # re-detect the current image inside the new ROI
         continue
@@ -396,7 +481,13 @@ while True:
             box['ymax'] += oy
         last_boxes = data  # refresh live-window overlay (empty list clears old boxes)
 
-        if len(data) != 0:
+        if USE_IMAGES:
+            known_garbage.clear()  # each still image is judged on its own
+        new_boxes, removed = update_known(data)
+        if removed:
+            print(f"{removed} garbage item(s) removed — watching for new garbage")
+
+        if new_boxes:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(DETECTIONS_DIR, f"garbage_{timestamp}.jpg")
             # Save the full frame (context around the ROI) with boxes drawn on it.
@@ -407,10 +498,13 @@ while True:
                 cv2.putText(clean, f"{box['name']} {box['confidence']:.2f}",
                             (x1, max(y1 - 8, 15)), font, 1.3, (0, 0, 255), 2, cv2.LINE_AA)
             cv2.imwrite(save_path, clean)
-            print(f"Garbage detected — saved: {save_path}")
+            print(f"New garbage detected ({len(new_boxes)}) — saved: {save_path}")
+            upload_detection(clean)
             play_alert()
+        elif data:
+            print(f"Garbage still present ({len(data)}) — already reported")
         else:
-            print('Motion detected, no garbage')
+            print('Motion detected, no garbage' if motion_present else 'Re-check: area clear')
 
         last_detection = time.time()
 
