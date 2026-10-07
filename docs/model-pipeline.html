@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garbage Model Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: two stacked technical flowcharts (training, then inference), each followed by its parameter sheet; the deployed weights file is the hand-off between them. */
+:root {
+  --bg: #f3f5f4;
+  --surface: #ffffff;
+  --ink: #18221e;
+  --muted: #5b6b64;
+  --line: #cfd8d3;
+  --accent: #23704a;
+  --accent-soft: #dcebe2;
+  --warn: #a8620b;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111715; --surface: #18201d; --ink: #e3ebe7; --muted: #93a49c; --line: #2e3a35;
+    --accent: #5cc08a; --accent-soft: #1d3428; --warn: #e3a24e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111715; --surface: #18201d; --ink: #e3ebe7; --muted: #93a49c; --line: #2e3a35;
+  --accent: #5cc08a; --accent-soft: #1d3428; --warn: #e3a24e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); margin: 0; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 64px; }
+h1, h2 { font-family: var(--display); text-transform: uppercase; text-wrap: balance; margin: 0; letter-spacing: .01em; }
+h1 { font-size: clamp(2.1rem, 5vw, 3.2rem); line-height: 1; font-weight: 700; }
+h2 { font-size: 1.7rem; font-weight: 600; }
+.eyebrow { font: 500 .75rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.lede { color: var(--muted); max-width: 66ch; margin: 0; }
+header { display: grid; gap: 12px; margin-bottom: 36px; }
+section { display: grid; gap: 16px; margin-top: 44px; }
+.head { display: grid; gap: 6px; }
+.head p { margin: 0; color: var(--muted); max-width: 72ch; }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px; overflow-x: auto; }
+.diagram pre.mermaid { margin: 0; background: transparent; min-width: 640px; display: flex; justify-content: center; }
+.handoff { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 36px; font: .85rem var(--mono); color: var(--muted); }
+.handoff b { color: var(--ink); background: var(--accent-soft); border: 1.5px solid var(--accent); border-radius: 4px; padding: 6px 12px; font-weight: 500; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sheet { min-width: 0; }
+.sheet h3 { font: 500 .72rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .85rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 .72rem var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+td.v { font-family: var(--mono); font-size: .8rem; white-space: nowrap; }
+td.num { text-align: right; font-family: var(--mono); font-size: .8rem; }
+.note { font-size: .82rem; color: var(--muted); margin: 0; }
+.note b { color: var(--warn); font-weight: 600; }
+code { font-family: var(--mono); font-size: .84em; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; }
+button { font: 500 .78rem var(--mono); background: var(--surface); color: var(--ink); border: 1.5px solid var(--line); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.foot { margin-top: 40px; color: var(--muted); font-size: .8rem; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">YOLOv5 · single class "garbage"</div>
+    <h1>Training and inference flow</h1>
+    <p class="lede">How the detector was trained, and what happens to each camera frame on the field laptop. Every value is taken from the training run files and <code>Backend/main.py</code>.</p>
+  </header>
+
+  <section id="training">
+    <div class="head">
+      <div class="eyebrow">Part A</div>
+      <h2>Model training</h2>
+      <p>Dataset build, transfer learning from COCO weights, and how the best checkpoint is chosen.</p>
+    </div>
+    <div class="diagram">
+<pre class="mermaid" id="mm-train">
+flowchart TD
+  subgraph DATA["1 · Dataset preparation"]
+    A["Roboflow 'Garbage Detection' v1<br/>495 images · 416×416 · 2 classes"] --> A2["Remap class ids → 0<br/>single class: garbage"]
+    B["Own CCTV clean-road images<br/>99 images"] --> B2["LabelImg → empty .txt labels<br/>(negative samples)"]
+    A2 --> S["build_dataset.py<br/>80/20 split · seed 42"]
+    B2 --> S
+    S --> SPLIT["train 474 imgs · val 120 imgs<br/>1029 boxes total"]
+    SPLIT --> Y["garbage.yaml · nc = 1"]
+  end
+
+  subgraph TRAIN["2 · Training loop (yolov5/train.py)"]
+    W["COCO-pretrained weights<br/>yolov5n.pt or yolov5s.pt"] --> M["Build model · reset head to 1 class"]
+    Y --> L["Dataloader · letterbox 640<br/>mosaic · HSV · flip-LR · scale · translate"]
+    M --> F["Forward pass<br/>3 detection scales P3 / P4 / P5"]
+    L --> F
+    F --> LOSS["Loss = box (CIoU) + objectness + class"]
+    LOSS --> OPT["Backprop · SGD<br/>lr 0.01 → 0.0001 · momentum 0.937<br/>3 warm-up epochs"]
+    OPT --> VAL["Validate on 120 val images<br/>P · R · mAP@0.5 · mAP@0.5:0.95"]
+    VAL --> D{"fitness =<br/>0.1·mAP50 + 0.9·mAP50-95<br/>better than best?"}
+    D -- yes --> BEST["save best.pt"]
+    D -- no --> LAST["save last.pt"]
+    BEST --> E{"all epochs done?"}
+    LAST --> E
+    E -- no --> F
+  end
+
+  subgraph SELECT["3 · Evaluate and select"]
+    E -- yes --> EV["val.py on held-out val set"]
+    EV --> C{"accurate enough AND<br/>fast enough on CPU?"}
+    C -- "YOLOv5n · 1.77M params" --> DEP["best1000.pt → Backend/model/"]
+    C -- "YOLOv5s · 7.0M params" --> EXP["kept as experiment<br/>(switch with the m key)"]
+  end
+</pre>
+    </div>
+    <div class="tools"><button type="button" data-copy="mm-train">Copy training flow as Mermaid</button></div>
+
+    <div class="grid2">
+      <div class="sheet">
+        <h3>Training runs</h3>
+        <div class="tbl"><table>
+          <tr><th></th><th>best1000.pt (deployed)</th><th>runs/garbage/best.pt</th></tr>
+          <tr><td>Architecture</td><td class="v">YOLOv5n</td><td class="v">YOLOv5s</td></tr>
+          <tr><td>Parameters</td><td class="v">1.77M · 3.9 MB</td><td class="v">7.0M · 14 MB</td></tr>
+          <tr><td>Hardware</td><td class="v">Google Colab</td><td class="v">RTX 4050 (6 GB)</td></tr>
+          <tr><td>Epochs · batch</td><td class="v">1000 · 32</td><td class="v">100 · 16</td></tr>
+          <tr><td>Image size</td><td class="v">640</td><td class="v">640</td></tr>
+          <tr><td>Data</td><td class="v">Colab data.yaml (unknown)</td><td class="v">594-image set above</td></tr>
+          <tr><td>Date</td><td class="v">Jan 2023</td><td class="v">Jun 2026</td></tr>
+        </table></div>
+      </div>
+      <div class="sheet">
+        <h3>Hyperparameters (YOLOv5 defaults, from hyp.yaml)</h3>
+        <div class="tbl"><table>
+          <tr><th>Setting</th><th>Value</th></tr>
+          <tr><td>Optimizer</td><td class="v">SGD, lr0 0.01, lrf 0.01</td></tr>
+          <tr><td>Momentum · weight decay</td><td class="v">0.937 · 0.0005</td></tr>
+          <tr><td>Warm-up</td><td class="v">3 epochs</td></tr>
+          <tr><td>Loss gains</td><td class="v">box 0.05 · obj 1.0 · cls 0.5</td></tr>
+          <tr><td>Mosaic · mixup</td><td class="v">1.0 · 0</td></tr>
+          <tr><td>HSV jitter</td><td class="v">h 0.015 · s 0.7 · v 0.4</td></tr>
+          <tr><td>Flip left-right</td><td class="v">0.5</td></tr>
+          <tr><td>Scale · translate</td><td class="v">0.5 · 0.1</td></tr>
+        </table></div>
+      </div>
+    </div>
+    <div class="sheet">
+      <h3>Validation results · 120 images, 208 boxes, 640 px</h3>
+      <div class="tbl"><table>
+        <tr><th>Model</th><th style="text-align:right">Precision</th><th style="text-align:right">Recall</th><th style="text-align:right">mAP@0.5</th><th style="text-align:right">mAP@0.5:0.95</th></tr>
+        <tr><td>YOLOv5n · best1000.pt (deployed)</td><td class="num">0.57</td><td class="num">0.20</td><td class="num">0.23</td><td class="num">0.09</td></tr>
+        <tr><td>YOLOv5s · runs/garbage/best.pt</td><td class="num">0.66</td><td class="num">0.42</td><td class="num">0.41</td><td class="num">0.17</td></tr>
+      </table></div>
+      <p class="note"><b>Caveat:</b> the val set is mostly Roboflow internet photos. YOLOv5s was trained on the same source; best1000.pt was not.</p>
+    </div>
+  </section>
+
+  <div class="handoff"><span>training output</span><b>Backend/model/best1000.pt</b><span>loaded by torch.hub (source = local)</span></div>
+
+  <section id="inference">
+    <div class="head">
+      <div class="eyebrow">Part B</div>
+      <h2>Live inference</h2>
+      <p>The main loop in <code>Backend/main.py</code>. A cheap motion check decides when the model runs, so the CPU stays mostly idle.</p>
+    </div>
+    <div class="diagram">
+<pre class="mermaid" id="mm-infer">
+flowchart TD
+  subgraph CAP["1 · Capture"]
+    CAM["Hikvision camera<br/>channel 101 · main stream"] --> RTSP["RTSP over TCP · OpenCV FFMPEG<br/>buffer size 1"]
+    RTSP --> TH["FreshestFrame thread<br/>keeps latest frame only"]
+    TH --> OK{"frame read OK?"}
+    OK -- no --> RC["release · wait 2 s · reconnect"] --> RTSP
+    OK -- yes --> FR["Full-res BGR frame"]
+  end
+
+  subgraph GATE["2 · Motion gate"]
+    FR --> ROI["Crop to ROI<br/>(drawn with r · optional roi.json)"]
+    ROI --> MOG["MOG2 background subtraction<br/>history 500 · varThreshold 25 · shadows on"]
+    MOG --> BIN["threshold 200 (drops shadows)<br/>morph open → dilate ×2"]
+    BIN --> CNT["count moving pixels"]
+    CNT --> RUN{"(motion above threshold AND ≥ 5 s since last)<br/>OR (known piles AND ≥ 30 s)?"}
+    RUN -- no --> SHOW["draw HUD · show frame"] --> FR
+  end
+
+  subgraph DET["3 · YOLOv5 inference"]
+    RUN -- yes --> CLEAN["copy clean ROI crop<br/>before HUD is drawn"]
+    CLEAN --> RGB["BGR → RGB · PIL image"]
+    RGB --> PRE["AutoShape: letterbox to 640<br/>scale pixels to 0–1"]
+    PRE --> NET["YOLOv5n forward pass<br/>best1000.pt on CPU"]
+    NET --> NMS["NMS · conf ≥ 0.50 · IoU 0.45"]
+    NMS --> BOX["boxes: xyxy · confidence · class"]
+    BOX --> OFF["shift by ROI offset<br/>→ full-frame coordinates"]
+  end
+
+  subgraph TRK["4 · Pile tracker"]
+    OFF --> MATCH{"matches a known pile?<br/>IoU ≥ 0.3 OR centre inside"}
+    MATCH -- yes --> UPD["update box · misses = 0"]
+    MATCH -- no --> NEW["new pile → add to list"]
+    UPD --> MISS["unmatched known piles: misses + 1<br/>misses ≥ 3 → forget (cleared)"]
+    NEW --> MISS
+    MISS --> ANY{"any new piles?"}
+    ANY -- no --> SHOW
+  end
+
+  subgraph OUT["5 · Report"]
+    ANY -- yes --> DRAW["draw boxes on clean full frame"]
+    DRAW --> SAVE["save detections/garbage_timestamp.jpg"]
+    SAVE --> POST["background thread<br/>POST /add/area/mac (Flask)"]
+    POST --> DB["SQLite yolo row · is_verified = 0<br/>→ Pending on dashboard"]
+    SAVE --> SND["audio alert (pygame)"]
+  end
+</pre>
+    </div>
+    <div class="tools"><button type="button" data-copy="mm-infer">Copy inference flow as Mermaid</button></div>
+
+    <div class="sheet">
+      <h3>Runtime settings · Backend/main.py</h3>
+      <div class="tbl"><table>
+        <tr><th>Constant</th><th>Value</th><th>What it controls</th></tr>
+        <tr><td class="v">MODEL_FILE</td><td class="v">best1000.pt</td><td>Starting weights; the <code>m</code> key cycles through every .pt in <code>model/</code></td></tr>
+        <tr><td class="v">INFERENCE_SIZE</td><td class="v">640</td><td>YOLO input size (raised from 320 in Jul 2026)</td></tr>
+        <tr><td class="v">CONFIDENCE</td><td class="v">0.50</td><td>Lowest score that counts as a detection</td></tr>
+        <tr><td class="v">DETECT_INTERVAL_SEC</td><td class="v">5</td><td>Shortest gap between motion-triggered runs</td></tr>
+        <tr><td class="v">RECHECK_INTERVAL_SEC</td><td class="v">30</td><td>Re-check known piles even without motion</td></tr>
+        <tr><td class="v">MOTION_PIXEL_THRESHOLD</td><td class="v">2500</td><td>Moving pixels needed (full frame); scaled to ROI area, minimum 300</td></tr>
+        <tr><td class="v">SAME_GARBAGE_IOU</td><td class="v">0.3</td><td>Overlap at which a box counts as the same pile</td></tr>
+        <tr><td class="v">CLEAR_AFTER_MISSES</td><td class="v">3</td><td>Missed checks in a row before a pile is treated as removed</td></tr>
+      </table></div>
+    </div>
+  </section>
+
+  <p class="foot">Sources: <code>garbage-detection-sc/</code> (build_dataset.py, hyp.yaml, opt.yaml, results.csv), metadata inside both weight files, <code>Backend/main.py</code>, and YOLOv5 val.py runs on 6 Oct 2026.</p>
+</div>
+
+<script type="text/plain" id="src-mm-train">
+flowchart TD
+  subgraph DATA["1 · Dataset preparation"]
+    A["Roboflow 'Garbage Detection' v1<br/>495 images · 416×416 · 2 classes"] --> A2["Remap class ids → 0<br/>single class: garbage"]
+    B["Own CCTV clean-road images<br/>99 images"] --> B2["LabelImg → empty .txt labels<br/>(negative samples)"]
+    A2 --> S["build_dataset.py<br/>80/20 split · seed 42"]
+    B2 --> S
+    S --> SPLIT["train 474 imgs · val 120 imgs<br/>1029 boxes total"]
+    SPLIT --> Y["garbage.yaml · nc = 1"]
+  end
+
+  subgraph TRAIN["2 · Training loop (yolov5/train.py)"]
+    W["COCO-pretrained weights<br/>yolov5n.pt or yolov5s.pt"] --> M["Build model · reset head to 1 class"]
+    Y --> L["Dataloader · letterbox 640<br/>mosaic · HSV · flip-LR · scale · translate"]
+    M --> F["Forward pass<br/>3 detection scales P3 / P4 / P5"]
+    L --> F
+    F --> LOSS["Loss = box (CIoU) + objectness + class"]
+    LOSS --> OPT["Backprop · SGD<br/>lr 0.01 → 0.0001 · momentum 0.937<br/>3 warm-up epochs"]
+    OPT --> VAL["Validate on 120 val images<br/>P · R · mAP@0.5 · mAP@0.5:0.95"]
+    VAL --> D{"fitness =<br/>0.1·mAP50 + 0.9·mAP50-95<br/>better than best?"}
+    D -- yes --> BEST["save best.pt"]
+    D -- no --> LAST["save last.pt"]
+    BEST --> E{"all epochs done?"}
+    LAST --> E
+    E -- no --> F
+  end
+
+  subgraph SELECT["3 · Evaluate and select"]
+    E -- yes --> EV["val.py on held-out val set"]
+    EV --> C{"accurate enough AND<br/>fast enough on CPU?"}
+    C -- "YOLOv5n · 1.77M params" --> DEP["best1000.pt → Backend/model/"]
+    C -- "YOLOv5s · 7.0M params" --> EXP["kept as experiment<br/>(switch with the m key)"]
+  end
+</script>
+<script type="text/plain" id="src-mm-infer">
+flowchart TD
+  subgraph CAP["1 · Capture"]
+    CAM["Hikvision camera<br/>channel 101 · main stream"] --> RTSP["RTSP over TCP · OpenCV FFMPEG<br/>buffer size 1"]
+    RTSP --> TH["FreshestFrame thread<br/>keeps latest frame only"]
+    TH --> OK{"frame read OK?"}
+    OK -- no --> RC["release · wait 2 s · reconnect"] --> RTSP
+    OK -- yes --> FR["Full-res BGR frame"]
+  end
+
+  subgraph GATE["2 · Motion gate"]
+    FR --> ROI["Crop to ROI<br/>(drawn with r · optional roi.json)"]
+    ROI --> MOG["MOG2 background subtraction<br/>history 500 · varThreshold 25 · shadows on"]
+    MOG --> BIN["threshold 200 (drops shadows)<br/>morph open → dilate ×2"]
+    BIN --> CNT["count moving pixels"]
+    CNT --> RUN{"(motion above threshold AND ≥ 5 s since last)<br/>OR (known piles AND ≥ 30 s)?"}
+    RUN -- no --> SHOW["draw HUD · show frame"] --> FR
+  end
+
+  subgraph DET["3 · YOLOv5 inference"]
+    RUN -- yes --> CLEAN["copy clean ROI crop<br/>before HUD is drawn"]
+    CLEAN --> RGB["BGR → RGB · PIL image"]
+    RGB --> PRE["AutoShape: letterbox to 640<br/>scale pixels to 0–1"]
+    PRE --> NET["YOLOv5n forward pass<br/>best1000.pt on CPU"]
+    NET --> NMS["NMS · conf ≥ 0.50 · IoU 0.45"]
+    NMS --> BOX["boxes: xyxy · confidence · class"]
+    BOX --> OFF["shift by ROI offset<br/>→ full-frame coordinates"]
+  end
+
+  subgraph TRK["4 · Pile tracker"]
+    OFF --> MATCH{"matches a known pile?<br/>IoU ≥ 0.3 OR centre inside"}
+    MATCH -- yes --> UPD["update box · misses = 0"]
+    MATCH -- no --> NEW["new pile → add to list"]
+    UPD --> MISS["unmatched known piles: misses + 1<br/>misses ≥ 3 → forget (cleared)"]
+    NEW --> MISS
+    MISS --> ANY{"any new piles?"}
+    ANY -- no --> SHOW
+  end
+
+  subgraph OUT["5 · Report"]
+    ANY -- yes --> DRAW["draw boxes on clean full frame"]
+    DRAW --> SAVE["save detections/garbage_timestamp.jpg"]
+    SAVE --> POST["background thread<br/>POST /add/area/mac (Flask)"]
+    POST --> DB["SQLite yolo row · is_verified = 0<br/>→ Pending on dashboard"]
+    SAVE --> SND["audio alert (pygame)"]
+  end
+</script>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (btn) {
+  var label = btn.textContent;
+  btn.addEventListener('click', function () {
+    var text = document.getElementById('src-' + btn.getAttribute('data-copy')).textContent;
+    function done(msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = label; }, 1600); }
+    try { navigator.clipboard.writeText(text.trim()).then(function () { done('Copied'); }, function () { done('Copy blocked: use the page source'); }); }
+    catch (e) { done('Copy blocked: use the page source'); }
+  });
+});
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });</script>
+
+</body>
+</html>

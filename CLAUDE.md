@@ -53,7 +53,7 @@ When adding routes, mirror the existing pattern (path params, `sqlite3` connecti
 
 **Schema created on import** — both `config.py` and `api.py` run `CREATE TABLE IF NOT EXISTS` at module import time, opening a DB connection as a side effect. Don't import `config` from test code without expecting this.
 
-**YOLO model** — `Backend/model/best1000.pt` is the trained weights file. `torch.hub.load('yolov5', 'custom', path='model/best1000.pt', source='local')` requires a local `yolov5/` checkout in `Backend/`. Inference runs at `model.conf = 0.50`, image size 320.
+**YOLO model** — `Backend/model/best1000.pt` is the trained weights file. `torch.hub.load('yolov5', 'custom', path='model/best1000.pt', source='local')` requires a local `yolov5/` checkout in `Backend/`. Inference runs at `model.conf = 0.50`, image size 640 (`INFERENCE_SIZE` in `main.py`).
 
 **`host/` is a stale duplicate** — kept in-tree; don't propagate edits there unless asked.
 
