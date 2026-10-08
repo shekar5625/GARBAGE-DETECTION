@@ -37,3 +37,7 @@ Backend/test_images/
 
 # Camera credentials — see Backend/.env.example
 Backend/.env
+
+# Fine-tuning photos, generated split and training runs (local only)
+fine tune/*
+!fine tune/split_dataset.py
