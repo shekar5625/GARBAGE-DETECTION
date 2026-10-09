@@ -41,3 +41,4 @@ Backend/.env
 # Fine-tuning photos, generated split and training runs (local only)
 fine tune/*
 !fine tune/split_dataset.py
+!fine tune/finetune_comparison.txt

@@ -1,0 +1,80 @@
+GARBAGE DETECTION - BEFORE vs AFTER FINE-TUNE
+=============================================
+
+Date of fine-tune : 2026-10-08
+Comparison run    : 2026-10-09
+
+Models
+------
+  Before : Backend/model/best1000.pt            (YOLOv5n, 1.76M params, 4.1 GFLOPs)
+  After  : fine tune/runs/finetune_train/weights/best.pt
+           (best1000.pt fine-tuned on our own collected photos; same
+            architecture, same size, 3.9 MB)
+
+Fine-tune setup
+---------------
+  Starting weights : best1000.pt
+  Epochs           : 100 (took ~10 minutes on RTX 4050)
+  Batch size       : 16
+  Image size       : 640
+  Optimizer        : SGD, lr0 = 0.01, no layers frozen
+  Data split       : fine tune/split_dataset.py - stratified 80/20
+                       train = 379 images
+                       val   =  95 images (75 with garbage, 20 clean)
+                              163 labelled garbage boxes in val
+  Class            : 1 (garbage)
+
+Both models were evaluated on the SAME 95 held-out validation images,
+which the fine-tuned model never saw during training.
+
+
+1) Standard YOLOv5 validation metrics (yolov5/val.py, imgsz 640)
+-----------------------------------------------------------------
+
+  Metric          Before    After     Change
+  --------------  --------  --------  ----------------
+  Precision       0.590     0.517     -0.073
+  Recall          0.215     0.350     +0.135  (+63%)
+  mAP@0.5         0.259     0.316     +0.057  (+22%)
+  mAP@0.5:0.95    0.100     0.113     +0.013  (+13%)
+  Inference time  5.8 ms    4.0 ms    (per image, GPU, batch 32)
+
+
+2) At the deployment threshold (model.conf = 0.50, as in main.py)
+-----------------------------------------------------------------
+  This is what the live camera loop actually experiences: does an
+  image produce at least one garbage detection or not?
+
+  Check                                     Before      After
+  ----------------------------------------  ----------  ----------
+  Garbage images detected (of 75)           29 (39%)    48 (64%)
+  Garbage images missed   (of 75)           46 (61%)    27 (36%)
+  Clean images with false alarm (of 20)      0 (0%)      2 (10%)
+  Total boxes drawn on val set              29          72
+
+
+Summary
+-------
+  + The fine-tuned model finds much more garbage: recall up from 0.215
+    to 0.350, and at the live threshold it catches garbage in 48 of 75
+    images instead of 29 (19 more piles reported).
+  + mAP@0.5 improves from 0.259 to 0.316 - better overall ranking of
+    detections.
+  + Same model size and speed, so it is a drop-in replacement for
+    best1000.pt on the CPU-only laptop.
+  - Precision drops slightly (0.590 -> 0.517) and 2 of 20 clean images
+    now raise a false alarm at conf 0.50. Since every detection goes to
+    the dashboard's Pending queue for human verification, extra false
+    positives are cheaper than missed garbage.
+  - Absolute numbers are still modest (recall 0.35); more labelled photos
+    from the actual camera views would help most.
+
+Verdict: the fine-tuned model is the better choice for deployment.
+
+Reproduce
+---------
+  cd Backend
+  python yolov5/val.py --weights model/best1000.pt \
+      --data "../fine tune/dataset/data.yaml" --imgsz 640
+  python yolov5/val.py --weights "../fine tune/runs/finetune_train/weights/best.pt" \
+      --data "../fine tune/dataset/data.yaml" --imgsz 640
