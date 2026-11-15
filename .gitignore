@@ -28,6 +28,7 @@ Backend/core/media/
 
 # Saved detection frames written by main.py at runtime
 Backend/detections/
+Backend/detections_raw/
 
 # Drawn ROI — site-specific pixel coords, must be redrawn per deployment
 Backend/roi.json

@@ -30,6 +30,9 @@ os.chdir(base_path)
 
 DETECTIONS_DIR = os.path.join(base_path, 'detections')
 os.makedirs(DETECTIONS_DIR, exist_ok=True)
+# Same frames as DETECTIONS_DIR, but clean — no boxes or labels drawn on them.
+RAW_DETECTIONS_DIR = os.path.join(base_path, 'detections_raw')
+os.makedirs(RAW_DETECTIONS_DIR, exist_ok=True)
 
 ROI_FILE = os.path.join(base_path, 'roi.json')  # remembers the drawn ROI between runs
 
@@ -356,7 +359,7 @@ kernel = np.ones((3, 3), np.uint8)
 last_detection = time.time()
 last_boxes = []  # most recent detection's boxes, drawn on the live window until next cycle
 
-print(f"Saving detections to: {DETECTIONS_DIR}")
+print(f"Saving detections to: {DETECTIONS_DIR} (clean copies: {RAW_DETECTIONS_DIR})")
 print(f"Models available ('m' to cycle): {', '.join(MODEL_FILES)}")
 if USE_IMAGES:
     print("Image mode. Press 'n'/SPACE for the next image, 'p' for the previous, "
@@ -490,6 +493,9 @@ while True:
         if new_boxes:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(DETECTIONS_DIR, f"garbage_{timestamp}.jpg")
+            # Clean copy first — the boxes below are drawn onto `clean` in place.
+            raw_path = os.path.join(RAW_DETECTIONS_DIR, f"garbage_{timestamp}.jpg")
+            cv2.imwrite(raw_path, clean)
             # Save the full frame (context around the ROI) with boxes drawn on it.
             for box in data:
                 x1, y1 = int(box['xmin']), int(box['ymin'])
@@ -498,7 +504,7 @@ while True:
                 cv2.putText(clean, f"{box['name']} {box['confidence']:.2f}",
                             (x1, max(y1 - 8, 15)), font, 1.3, (0, 0, 255), 2, cv2.LINE_AA)
             cv2.imwrite(save_path, clean)
-            print(f"New garbage detected ({len(new_boxes)}) — saved: {save_path}")
+            print(f"New garbage detected ({len(new_boxes)}) — saved: {save_path} (clean: {raw_path})")
             upload_detection(clean)
             play_alert()
         elif data:
