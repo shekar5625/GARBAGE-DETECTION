@@ -69,7 +69,7 @@ def play_alert():
 
 
 MODEL_DIR = os.path.join(base_path, 'model')
-MODEL_FILE = 'best1000.pt'  # weights to start with; 'm' cycles through every .pt in model/
+MODEL_FILE = 'finetuned_v5n.pt'  # weights to start with; 'm' cycles through every .pt in model/
 CONFIDENCE = 0.50
 
 _model_cache = {}
